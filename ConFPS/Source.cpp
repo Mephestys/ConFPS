@@ -1,7 +1,11 @@
 #include <iostream>
 #include <chrono>
+#include <vector>
+#include <utility>
+#include <algorithm>
 using namespace std;
 
+#include <stdio.h>
 #include <Windows.h>
 
 int nScreenWidth = 120;
@@ -12,9 +16,9 @@ int nMapWidth = 16;
 float fPlayerX = 8.0f;
 float fPlayerY = 8.0f;
 float fPlayerA = 0.0f;
-
 float fFOV = 3.14159f / 4.0f;
 float fDepth = 16.0f;
+float fSpeed = 5.0f;
 
 int main()
 {
@@ -32,11 +36,11 @@ int main()
 	map += L"#..............#";
 	map += L"#..............#";
 	map += L"#..............#";
-	map += L"#..............#";
-	map += L"#..............#";
-	map += L"#..............#";
-	map += L"#..............#";
-	map += L"#..............#";
+	map += L"#.........#....#";
+	map += L"#.........#....#";
+	map += L"#.........#....#";
+	map += L"#.........#....#";
+	map += L"#.........######";
 	map += L"#..............#";
 	map += L"#..............#";
 	map += L"################";
@@ -53,21 +57,33 @@ int main()
 
 
 		if (GetAsyncKeyState((unsigned short)'A') & 0x8000)
-			fPlayerA -= (0.8f) * fElapsedTime;
+			fPlayerA -= (fSpeed * 0.55f) * fElapsedTime;
 
 		if (GetAsyncKeyState((unsigned short)'D') & 0x8000)
-			fPlayerA += (0.8f) * fElapsedTime;
+			fPlayerA += (fSpeed * 0.55f) * fElapsedTime;
 
 		if (GetAsyncKeyState((unsigned short)'W') & 0x8000)
 		{
-			fPlayerX += sinf(fPlayerA) * 5.0f * fElapsedTime;
-			fPlayerY += cosf(fPlayerA) * 5.0f * fElapsedTime;
+			fPlayerX += sinf(fPlayerA) * fSpeed * fElapsedTime;
+			fPlayerY += cosf(fPlayerA) * fSpeed * fElapsedTime;
+
+			if (map[(int)fPlayerX * nMapWidth + (int)fPlayerY] == '#')
+			{
+				fPlayerX -= sinf(fPlayerA) * fSpeed * fElapsedTime;
+				fPlayerY -= cosf(fPlayerA) * fSpeed* fElapsedTime;
+			}
 		}
 
 		if (GetAsyncKeyState((unsigned short)'S') & 0x8000)
 		{
-			fPlayerX -= sinf(fPlayerA) * 5.0f * fElapsedTime;
-			fPlayerY -= cosf(fPlayerA) * 5.0f * fElapsedTime;
+			fPlayerX -= sinf(fPlayerA) * fSpeed * fElapsedTime;
+			fPlayerY -= cosf(fPlayerA) * fSpeed * fElapsedTime;
+
+			if (map[(int)fPlayerX * nMapWidth + (int)fPlayerY] == '#')
+			{
+				fPlayerX += sinf(fPlayerA) * fSpeed * fElapsedTime;
+				fPlayerY += cosf(fPlayerA) * fSpeed * fElapsedTime;
+			}
 		}
 
 		for (int x = 0; x < nScreenWidth; x++)
@@ -77,8 +93,8 @@ int main()
 			float fStepSize = 0.1f;
 			float fDistanceToWall = 0.0f;
 
-
 			bool bHitWall = false;
+			bool bBoundary = false;
 
 			float fEyeX = sinf(fRayAngle);
 			float fEyeY = cosf(fRayAngle);
@@ -100,6 +116,25 @@ int main()
 					if (map[nTestX * nMapWidth + nTestY] == '#')
 					{
 						bHitWall = true;
+
+						vector<pair<float, float>> p;
+
+						for (int tx = 0; tx < 2; tx++)
+							for (int ty = 0; ty < 2; ty++)
+							{
+								float vy = (float)nTestY + ty - fPlayerY;
+								float vx = (float)nTestX + tx - fPlayerX;
+								float d = sqrt(vx*vx + vy*vy);
+								float dot = (fEyeX * vx / d) + (fEyeY * vy / d);
+								p.push_back(make_pair(d, dot));
+							}
+
+						sort(p.begin(), p.end(), [](const pair<float, float> &left, const pair<float, float> &right) { return left.first < right.first; });
+
+						float fBound = 0.01;
+						if (acos(p.at(0).second) < fBound) bBoundary = true;
+						if (acos(p.at(1).second) < fBound) bBoundary = true;
+						// if (acos(p.at(2).second) < fBound) bBoundary = true;
 					}
 				}
 			}
@@ -119,6 +154,8 @@ int main()
 				nShade = 0x2591;
 			else nShade = ' ';
 
+			if (bBoundary) nShade = ' ';
+
 			for (int y = 0; y < nScreenHeight; y++)
 			{
 				if (y <= nCeiling)
@@ -126,9 +163,29 @@ int main()
 				else if (y > nCeiling && y <= nFloor)
 					screen[y*nScreenWidth + x] = nShade;
 				else
-					screen[y*nScreenWidth + x] = ' ';
+				{
+					float b = 1.0f - (((float)y - nScreenHeight / 2.0f) / ((float)nScreenHeight / 2.0f));
+					if (b < 0.25)
+						nShade = '#';
+					else if (b < 0.5)
+						nShade = 'x';
+					else if (b < 0.75)
+						nShade = '.';
+					else if (b < 0.9)
+						nShade = '-';
+					else nShade = ' ';
+					screen[y*nScreenWidth + x] = nShade;
+				}
 			}
 		}
+
+		for (int nx = 0; nx < nMapWidth; nx++)
+			for (int ny = 0; ny < nMapWidth; ny++)
+			{
+				screen[(ny)*nScreenWidth + nx] = map[ny * nMapWidth + nx];
+			}
+
+		screen[((int)fPlayerX) * nScreenWidth + (int)fPlayerY] = 'P';
 
 		screen[nScreenWidth * nScreenHeight - 1] = '\0';
 		WriteConsoleOutputCharacter(hConsole, screen, nScreenWidth * nScreenHeight, { 0,0 }, &dwBytesWritten);
